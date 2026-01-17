@@ -60,45 +60,60 @@ map.on('load', async () => {
 
         if (count === 0) return;
 
-        // Calculate Centroid using Turf
-        const centroid = turf.centroid(feature);
-        const centerCoords = centroid.geometry.coordinates;
+        // Calculate standard size for squares based on district area to ensure fit
+        // Use bbox to estimate district "width" in degrees
+        const bbox = turf.bbox(feature); // [minX, minY, maxX, maxY]
+        const bboxWidth = bbox[2] - bbox[0];
+        const bboxHeight = bbox[3] - bbox[1];
 
-        // Generate grid points centered at centroid
-        // Grid spacing in degrees (approximate)
-        // 0.05 degrees is roughly 5km, maybe too big. 
-        // We need visual spacing that stays constant-ish or scales?
-        // Actually, if we use fixed pixel offset in symbol layer, they might overlap or be too far.
-        // Better to use actual geographic offsets for "map" feeling, or pixel offsets?
-        // User asked for "squares", usually implied fixed size visualizing data density.
-        // Let's calculate geographic offsets so they zoom with the map.
+        // Use a fraction of the district width for the square size
+        // This ensures squares scale roughly with the district size (handling urban vs rural density)
+        // Adjust the divisor (e.g., 20) to change relative size
+        const sizeDegrees = Math.min(bboxWidth, bboxHeight) * 0.15;
 
-        const spacing = 0.04; // Roughly 4km spacing
+        // Alternatively, use fixed meters converted to degrees?
+        // User asked for "Zoom level small -> big, Zoom level big -> small" which implies FIXED IN WORLD SPACE.
+        // But uniform fixed size fails for Tokyo vs Hokkaido.
+        // Let's stick to proportional for now, or maybe a clamped value.
+
+        const spacing = sizeDegrees; // Tightly packed
         const cols = Math.ceil(Math.sqrt(count));
+        const rows = Math.ceil(count / cols);
 
         candidates.forEach((candidate, i) => {
             const col = i % cols;
             const row = Math.floor(i / cols);
 
-            // Center the grid
-            const offsetX = (col - (cols - 1) / 2) * spacing;
-            const offsetY = (row - (Math.ceil(count / cols) - 1) / 2) * spacing; // Invert Y (lat) if needed, but simple grid is fine.
-            // Note: Latitude spacing decreases as we go north if we want square visual, but simple addition is okay for demo.
+            // Calculate offset from centroid (centered grid)
+            // x: left to right
+            // y: top to bottom (lat decreases)
+            const startX = centerCoords[0] - (cols * spacing) / 2;
+            const startY = centerCoords[1] + (rows * spacing) / 2; // Start from top
 
-            const point = {
+            const x = startX + col * spacing;
+            const y = startY - row * spacing;
+
+            // Generate Polygon coordinates (Counter-clockwise: BL, BR, TR, TL, BL)
+            // Note: Simple addition of degrees is a flat-earth approximation which is fine for small squares.
+            const p1 = [x, y - spacing];           // Bottom-Left
+            const p2 = [x + spacing, y - spacing]; // Bottom-Right
+            const p3 = [x + spacing, y];           // Top-Right
+            const p4 = [x, y];                     // Top-Left
+
+            const polygon = {
                 type: 'Feature',
                 geometry: {
-                    type: 'Point',
-                    coordinates: [centerCoords[0] + offsetX, centerCoords[1] - offsetY] // -offsetY to go down
+                    type: 'Polygon',
+                    coordinates: [[p1, p2, p3, p4, p1]]
                 },
                 properties: {
                     kuname: kuname,
                     candidate_name: candidate.candidate_name,
                     party: candidate.party,
-                    color: partyColors[candidate.party] || '#999999' // fallback color
+                    color: partyColors[candidate.party] || '#999999'
                 }
             };
-            candidateFeatures.push(point);
+            candidateFeatures.push(polygon);
         });
     });
 
@@ -135,14 +150,35 @@ map.on('load', async () => {
         }
     });
 
-    // Candidates (Squares)
+    // Candidates (Squares as Polygons)
     map.addSource('candidates', {
         type: 'geojson',
         data: candidatesGeoJSON
     });
 
-    // Label Layer (District Name) - Rendered nicely below or above squares
-    // Re-adding this as requested previously, but maybe with less prominence to avoid clutter
+    // Use FILL layer instead of Symbol to scale with map
+    map.addLayer({
+        id: 'candidates-fill',
+        type: 'fill',
+        source: 'candidates',
+        paint: {
+            'fill-color': ['get', 'color'],
+            'fill-opacity': 1
+        }
+    });
+
+    // Add white border to separate squares visually
+    map.addLayer({
+        id: 'candidates-border',
+        type: 'line',
+        source: 'candidates',
+        paint: {
+            'line-color': '#ffffff',
+            'line-width': 1
+        }
+    });
+
+    // Label Layer (District Name)
     map.addLayer({
         id: 'senkyoku-label',
         type: 'symbol',
@@ -151,28 +187,14 @@ map.on('load', async () => {
             'text-field': ['get', 'kuname'],
             'text-font': ['Noto Sans CJK JP Regular'],
             'text-size': 10,
-            'text-offset': [0, -3], // Shift label up
-            'text-variable-anchor': ['top', 'bottom', 'left', 'right'],
+            'text-offset': [0, 2], // Shift label down (below squares usually)
+            'text-variable-anchor': ['top', 'bottom'],
             'text-justify': 'center'
         },
         paint: {
             'text-color': '#666666',
             'text-halo-color': '#ffffff',
             'text-halo-width': 1
-        }
-    });
-
-    map.addLayer({
-        id: 'candidates-symbol',
-        type: 'symbol',
-        source: 'candidates',
-        layout: {
-            'icon-image': 'square',
-            'icon-size': 0.8,
-            'icon-allow-overlap': true
-        },
-        paint: {
-            'icon-color': ['get', 'color']
         }
     });
 
