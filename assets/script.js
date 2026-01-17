@@ -62,6 +62,9 @@ map.on('load', async () => {
 
         // Calculate standard size for squares based on district area to ensure fit
         // Use bbox to estimate district "width" in degrees
+        const centroid = turf.centroid(feature);
+        const centerCoords = centroid.geometry.coordinates;
+
         const bbox = turf.bbox(feature); // [minX, minY, maxX, maxY]
         const bboxWidth = bbox[2] - bbox[0];
         const bboxHeight = bbox[3] - bbox[1];
