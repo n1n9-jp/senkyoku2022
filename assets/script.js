@@ -18,10 +18,88 @@ const map = new maplibregl.Map({
     zoom: 5
 });
 
-map.on('load', () => {
+map.on('load', async () => {
+    // 1. Generate a white square icon for symbols
+    const size = 20;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, size, size);
+    const imageData = ctx.getImageData(0, 0, size, size);
+    map.addImage('square', imageData, { sdf: true }); // SDF enabled for coloring
+
+    // 2. Load Data
+    const [geojson, csvData] = await Promise.all([
+        d3.json('assets/senkyoku2022_0.8.geojson'),
+        d3.csv('assets/dummy_candidates.csv')
+    ]);
+
+    // 3. Process Data
+    const candidateFeatures = [];
+    const candidatesByKu = d3.group(csvData, d => d.kuname);
+
+    geojson.features.forEach(feature => {
+        const kuname = feature.properties.kuname;
+        const candidates = candidatesByKu.get(kuname) || [];
+        const count = candidates.length;
+
+        if (count === 0) return;
+
+        // Calculate Centroid using Turf
+        const centroid = turf.centroid(feature);
+        const centerCoords = centroid.geometry.coordinates;
+
+        // Generate grid points centered at centroid
+        // Grid spacing in degrees (approximate)
+        // 0.05 degrees is roughly 5km, maybe too big. 
+        // We need visual spacing that stays constant-ish or scales?
+        // Actually, if we use fixed pixel offset in symbol layer, they might overlap or be too far.
+        // Better to use actual geographic offsets for "map" feeling, or pixel offsets?
+        // User asked for "squares", usually implied fixed size visualizing data density.
+        // Let's calculate geographic offsets so they zoom with the map.
+
+        const spacing = 0.04; // Roughly 4km spacing
+        const cols = Math.ceil(Math.sqrt(count));
+
+        candidates.forEach((candidate, i) => {
+            const col = i % cols;
+            const row = Math.floor(i / cols);
+
+            // Center the grid
+            const offsetX = (col - (cols - 1) / 2) * spacing;
+            const offsetY = (row - (Math.ceil(count / cols) - 1) / 2) * spacing; // Invert Y (lat) if needed, but simple grid is fine.
+            // Note: Latitude spacing decreases as we go north if we want square visual, but simple addition is okay for demo.
+
+            const point = {
+                type: 'Feature',
+                geometry: {
+                    type: 'Point',
+                    coordinates: [centerCoords[0] + offsetX, centerCoords[1] - offsetY] // -offsetY to go down
+                },
+                properties: {
+                    kuname: kuname,
+                    candidate_name: candidate.candidate_name,
+                    party: candidate.party,
+                    color: candidate.color
+                }
+            };
+            candidateFeatures.push(point);
+        });
+    });
+
+    const candidatesGeoJSON = {
+        type: 'FeatureCollection',
+        features: candidateFeatures
+    };
+
+    // 4. Add Sources and Layers
+
+    // Polygones (Boundaries)
     map.addSource('senkyoku', {
         type: 'geojson',
-        data: 'assets/senkyoku2022_0.8.geojson'
+        data: geojson
     });
 
     map.addLayer({
@@ -29,8 +107,8 @@ map.on('load', () => {
         type: 'fill',
         source: 'senkyoku',
         paint: {
-            'fill-color': '#3b82f6',
-            'fill-opacity': 0.8
+            'fill-color': '#ffffff',
+            'fill-opacity': 0.1
         }
     });
 
@@ -39,36 +117,51 @@ map.on('load', () => {
         type: 'line',
         source: 'senkyoku',
         paint: {
-            'line-color': '#ffffff',
-            'line-width': 0.5
+            'line-color': '#cccccc',
+            'line-width': 1
         }
     });
 
+    // Candidates (Squares)
+    map.addSource('candidates', {
+        type: 'geojson',
+        data: candidatesGeoJSON
+    });
+
+    // Label Layer (District Name) - Rendered nicely below or above squares
+    // Re-adding this as requested previously, but maybe with less prominence to avoid clutter
     map.addLayer({
         id: 'senkyoku-label',
         type: 'symbol',
         source: 'senkyoku',
         layout: {
             'text-field': ['get', 'kuname'],
-            'text-font': ['Noto Sans CJK JP Regular'], // 利用可能なフォントスタックを指定
-            'text-size': 12,
-            'text-variable-anchor': ['center'],
+            'text-font': ['Noto Sans CJK JP Regular'],
+            'text-size': 10,
+            'text-offset': [0, -3], // Shift label up
+            'text-variable-anchor': ['top', 'bottom', 'left', 'right'],
             'text-justify': 'center'
         },
         paint: {
-            'text-color': '#000000',
+            'text-color': '#666666',
             'text-halo-color': '#ffffff',
             'text-halo-width': 1
         }
     });
 
-    // ホバー効果（簡易実装: デスクトップのみ）
-    let hoveredStateId = null;
+    map.addLayer({
+        id: 'candidates-symbol',
+        type: 'symbol',
+        source: 'candidates',
+        layout: {
+            'icon-image': 'square',
+            'icon-size': 0.8,
+            'icon-allow-overlap': true
+        },
+        paint: {
+            'icon-color': ['get', 'color']
+        }
+    });
 
-    // MapLibreではfeature stateを使うのが一般的だが、geojsonソースにidが必要。
-    // 今回のgeojsonにidプロパティがない場合は単純なfill-colorの変更は難しいが、
-    // ズームイン・アウトのUIが主目的なので一旦基本的な描画とズームを優先。
-
-    // ナビゲーションコントロール（ズームイン・アウトボタン）を追加
     map.addControl(new maplibregl.NavigationControl());
 });
