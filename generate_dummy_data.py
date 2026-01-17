@@ -18,7 +18,7 @@ with open('assets/kunames.txt', 'r') as f:
 
 with open('assets/dummy_candidates.csv', 'w', newline='', encoding='utf-8') as f:
     writer = csv.writer(f)
-    writer.writerow(['kuname', 'candidate_name', 'party', 'color'])
+    writer.writerow(['kuname', 'candidate_name', 'party'])
     
     for kuname in kunames:
         # Randomly decide number of candidates (2 to 5)
@@ -29,6 +29,6 @@ with open('assets/dummy_candidates.csv', 'w', newline='', encoding='utf-8') as f
         
         for i, party in enumerate(selected_parties):
             candidate_name = f"候補者{chr(65+i)}" # Candidate A, B, C...
-            writer.writerow([kuname, candidate_name, party['name'], party['color']])
+            writer.writerow([kuname, candidate_name, party['name']])
 
 print("Generated assets/dummy_candidates.csv")

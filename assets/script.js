@@ -19,6 +19,19 @@ const map = new maplibregl.Map({
 });
 
 map.on('load', async () => {
+    // Determine party colors mapping in code
+    const partyColors = {
+        "自由民主党": "#d70035",
+        "立憲民主党": "#004098",
+        "日本維新の会": "#88c900",
+        "公明党": "#f55883",
+        "日本共産党": "#5a2e87",
+        "国民民主党": "#fdbd02",
+        "れいわ新選組": "#e954a4",
+        "社民党": "#1ca9e9",
+        "無所属": "#999999"
+    };
+
     // 1. Generate a white square icon for symbols
     const size = 20;
     const canvas = document.createElement('canvas');
@@ -82,7 +95,7 @@ map.on('load', async () => {
                     kuname: kuname,
                     candidate_name: candidate.candidate_name,
                     party: candidate.party,
-                    color: candidate.color
+                    color: partyColors[candidate.party] || '#999999' // fallback color
                 }
             };
             candidateFeatures.push(point);
