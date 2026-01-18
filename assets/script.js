@@ -59,8 +59,8 @@ map.on('load', async () => {
 
         // Zoom-dependent sizing
         const minSize = 0.008;  // Minimum size at high zoom levels
-        const maxSize = 0.05;   // Maximum size at low zoom levels
-        const zoomThreshold = 7;
+        const maxSize = 0.025;  // Maximum size at low zoom levels (reduced from 0.05)
+        const zoomThreshold = 6; // Start shrinking earlier (was 7)
 
         let sizeDegrees;
         if (currentZoom < zoomThreshold) {
@@ -82,7 +82,14 @@ map.on('load', async () => {
             const centroid = turf.centroid(feature);
             const centerCoords = centroid.geometry.coordinates;
 
-            const spacing = sizeDegrees; // Tightly packed
+            // Apply latitude correction for square aspect ratio
+            // At different latitudes, 1 degree longitude != 1 degree latitude in physical distance
+            const lat = centerCoords[1];
+            const lonCorrection = 1 / Math.cos(lat * Math.PI / 180);
+
+            const spacingLat = sizeDegrees; // Latitude spacing
+            const spacingLon = sizeDegrees * lonCorrection; // Longitude spacing (corrected)
+
             const cols = Math.ceil(Math.sqrt(count));
             const rows = Math.ceil(count / cols);
 
@@ -91,16 +98,16 @@ map.on('load', async () => {
                 const row = Math.floor(i / cols);
 
                 // Calculate offset from centroid (centered grid)
-                const startX = centerCoords[0] - (cols * spacing) / 2;
-                const startY = centerCoords[1] + (rows * spacing) / 2;
+                const startX = centerCoords[0] - (cols * spacingLon) / 2;
+                const startY = centerCoords[1] + (rows * spacingLat) / 2;
 
-                const x = startX + col * spacing;
-                const y = startY - row * spacing;
+                const x = startX + col * spacingLon;
+                const y = startY - row * spacingLat;
 
-                // Generate Polygon coordinates
-                const p1 = [x, y - spacing];
-                const p2 = [x + spacing, y - spacing];
-                const p3 = [x + spacing, y];
+                // Generate Polygon coordinates (square)
+                const p1 = [x, y - spacingLat];
+                const p2 = [x + spacingLon, y - spacingLat];
+                const p3 = [x + spacingLon, y];
                 const p4 = [x, y];
 
                 const polygon = {
@@ -211,4 +218,12 @@ map.on('load', async () => {
     });
 
     map.addControl(new maplibregl.NavigationControl());
+
+    // Toggle candidate squares visibility
+    const toggleCheckbox = document.getElementById('toggle-squares');
+    toggleCheckbox.addEventListener('change', (e) => {
+        const visibility = e.target.checked ? 'visible' : 'none';
+        map.setLayoutProperty('candidates-fill', 'visibility', visibility);
+        map.setLayoutProperty('candidates-border', 'visibility', visibility);
+    });
 });
