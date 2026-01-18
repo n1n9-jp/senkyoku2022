@@ -50,70 +50,81 @@ map.on('load', async () => {
         d3.csv('assets/dummy_candidates.csv')
     ]);
 
-    // 3. Process Data
-    const candidateFeatures = [];
     const candidatesByKu = d3.group(csvData, d => d.kuname);
 
-    geojson.features.forEach(feature => {
-        const kuname = feature.properties.kuname;
-        const candidates = candidatesByKu.get(kuname) || [];
-        const count = candidates.length;
+    // Function to generate candidate features based on current zoom
+    function generateCandidateFeatures() {
+        const candidateFeatures = [];
+        const currentZoom = map.getZoom();
 
-        if (count === 0) return;
+        // Zoom-dependent sizing
+        const minSize = 0.008;  // Minimum size at high zoom levels
+        const maxSize = 0.05;   // Maximum size at low zoom levels
+        const zoomThreshold = 7;
 
-        // Calculate Centroid using Turf
-        const centroid = turf.centroid(feature);
-        const centerCoords = centroid.geometry.coordinates;
+        let sizeDegrees;
+        if (currentZoom < zoomThreshold) {
+            sizeDegrees = maxSize;
+        } else {
+            const zoomRange = 12 - zoomThreshold;
+            const progress = Math.min((currentZoom - zoomThreshold) / zoomRange, 1);
+            sizeDegrees = maxSize - (progress * (maxSize - minSize));
+        }
 
-        // Use a fixed size in degrees so all squares are the same size across the map regardless of district size.
-        // 0.008 degrees is approximately 900m, which fits reasonably well in small urban districts while staying visible.
-        const sizeDegrees = 0.008;
+        geojson.features.forEach(feature => {
+            const kuname = feature.properties.kuname;
+            const candidates = candidatesByKu.get(kuname) || [];
+            const count = candidates.length;
 
-        const spacing = sizeDegrees; // Tightly packed
-        const cols = Math.ceil(Math.sqrt(count));
-        const rows = Math.ceil(count / cols);
+            if (count === 0) return;
 
-        candidates.forEach((candidate, i) => {
-            const col = i % cols;
-            const row = Math.floor(i / cols);
+            // Calculate Centroid using Turf
+            const centroid = turf.centroid(feature);
+            const centerCoords = centroid.geometry.coordinates;
 
-            // Calculate offset from centroid (centered grid)
-            // x: left to right
-            // y: top to bottom (lat decreases)
-            const startX = centerCoords[0] - (cols * spacing) / 2;
-            const startY = centerCoords[1] + (rows * spacing) / 2; // Start from top
+            const spacing = sizeDegrees; // Tightly packed
+            const cols = Math.ceil(Math.sqrt(count));
+            const rows = Math.ceil(count / cols);
 
-            const x = startX + col * spacing;
-            const y = startY - row * spacing;
+            candidates.forEach((candidate, i) => {
+                const col = i % cols;
+                const row = Math.floor(i / cols);
 
-            // Generate Polygon coordinates (Counter-clockwise: BL, BR, TR, TL, BL)
-            // Note: Simple addition of degrees is a flat-earth approximation which is fine for small squares.
-            const p1 = [x, y - spacing];           // Bottom-Left
-            const p2 = [x + spacing, y - spacing]; // Bottom-Right
-            const p3 = [x + spacing, y];           // Top-Right
-            const p4 = [x, y];                     // Top-Left
+                // Calculate offset from centroid (centered grid)
+                const startX = centerCoords[0] - (cols * spacing) / 2;
+                const startY = centerCoords[1] + (rows * spacing) / 2;
 
-            const polygon = {
-                type: 'Feature',
-                geometry: {
-                    type: 'Polygon',
-                    coordinates: [[p1, p2, p3, p4, p1]]
-                },
-                properties: {
-                    kuname: kuname,
-                    candidate_name: candidate.candidate_name,
-                    party: candidate.party,
-                    color: partyColors[candidate.party] || '#999999'
-                }
-            };
-            candidateFeatures.push(polygon);
+                const x = startX + col * spacing;
+                const y = startY - row * spacing;
+
+                // Generate Polygon coordinates
+                const p1 = [x, y - spacing];
+                const p2 = [x + spacing, y - spacing];
+                const p3 = [x + spacing, y];
+                const p4 = [x, y];
+
+                const polygon = {
+                    type: 'Feature',
+                    geometry: {
+                        type: 'Polygon',
+                        coordinates: [[p1, p2, p3, p4, p1]]
+                    },
+                    properties: {
+                        kuname: kuname,
+                        candidate_name: candidate.candidate_name,
+                        party: candidate.party,
+                        color: partyColors[candidate.party] || '#999999'
+                    }
+                };
+                candidateFeatures.push(polygon);
+            });
         });
-    });
 
-    const candidatesGeoJSON = {
-        type: 'FeatureCollection',
-        features: candidateFeatures
-    };
+        return {
+            type: 'FeatureCollection',
+            features: candidateFeatures
+        };
+    }
 
     // 4. Add Sources and Layers
 
@@ -146,7 +157,7 @@ map.on('load', async () => {
     // Candidates (Squares as Polygons)
     map.addSource('candidates', {
         type: 'geojson',
-        data: candidatesGeoJSON
+        data: generateCandidateFeatures()
     });
 
     // Use FILL layer instead of Symbol to scale with map
@@ -180,7 +191,7 @@ map.on('load', async () => {
             'text-field': ['get', 'kuname'],
             'text-font': ['Noto Sans CJK JP Regular'],
             'text-size': 10,
-            'text-offset': [0, 2], // Shift label down (below squares usually)
+            'text-offset': [0, 2],
             'text-variable-anchor': ['top', 'bottom'],
             'text-justify': 'center'
         },
@@ -188,6 +199,14 @@ map.on('load', async () => {
             'text-color': '#666666',
             'text-halo-color': '#ffffff',
             'text-halo-width': 1
+        }
+    });
+
+    // Update candidate squares on zoom
+    map.on('zoomend', () => {
+        const source = map.getSource('candidates');
+        if (source) {
+            source.setData(generateCandidateFeatures());
         }
     });
 
