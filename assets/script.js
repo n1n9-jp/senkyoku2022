@@ -15,7 +15,8 @@ const map = new maplibregl.Map({
         ]
     },
     center: [138, 38], // 日本の中心付近
-    zoom: 5
+    zoom: 5,
+    hash: true
 });
 
 map.on('load', async () => {
