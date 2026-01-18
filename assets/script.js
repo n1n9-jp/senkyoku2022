@@ -60,24 +60,13 @@ map.on('load', async () => {
 
         if (count === 0) return;
 
-        // Calculate standard size for squares based on district area to ensure fit
-        // Use bbox to estimate district "width" in degrees
+        // Calculate Centroid using Turf
         const centroid = turf.centroid(feature);
         const centerCoords = centroid.geometry.coordinates;
 
-        const bbox = turf.bbox(feature); // [minX, minY, maxX, maxY]
-        const bboxWidth = bbox[2] - bbox[0];
-        const bboxHeight = bbox[3] - bbox[1];
-
-        // Use a fraction of the district width for the square size
-        // This ensures squares scale roughly with the district size (handling urban vs rural density)
-        // Adjust the divisor (e.g., 20) to change relative size
-        const sizeDegrees = Math.min(bboxWidth, bboxHeight) * 0.15;
-
-        // Alternatively, use fixed meters converted to degrees?
-        // User asked for "Zoom level small -> big, Zoom level big -> small" which implies FIXED IN WORLD SPACE.
-        // But uniform fixed size fails for Tokyo vs Hokkaido.
-        // Let's stick to proportional for now, or maybe a clamped value.
+        // Use a fixed size in degrees so all squares are the same size across the map regardless of district size.
+        // 0.008 degrees is approximately 900m, which fits reasonably well in small urban districts while staying visible.
+        const sizeDegrees = 0.008;
 
         const spacing = sizeDegrees; // Tightly packed
         const cols = Math.ceil(Math.sqrt(count));
